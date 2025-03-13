@@ -2,7 +2,6 @@ from flask import Flask, request, jsonify
 from flask_cors import CORS
 from flask_sqlalchemy import SQLAlchemy
 import os
-import sys
 
 app = Flask(__name__)
 CORS(app)
@@ -25,30 +24,11 @@ class Device(db.Model):
     def __repr__(self):
         return f'<Device {self.name}>'
 
-def handle_db_initialization():
-    with app.app_context():
-        # Check if the table exists but needs to be updated
-        try:
-            # First try to query with the existing model
-            Device.query.first()
-            print("Database schema is up to date.")
-        except Exception as e:
-            if "column devices.value does not exist" in str(e):
-                print("Updating database schema to add 'value' column...")
-                # Drop and recreate the table if it's missing columns
-                db.session.execute('ALTER TABLE devices ADD COLUMN value INTEGER DEFAULT 0')
-                db.session.commit()
-                print("Database schema updated successfully.")
-            else:
-                # If it's a different error, try to create the table from scratch
-                print(f"Initializing database schema: {str(e)}")
-                db.create_all()
-                print("Database schema created successfully.")
+# For newer Flask versions, we need to create tables differently
+with app.app_context():
+    db.create_all()
 
-# Initialize database schema
-handle_db_initialization()
-
-@app.route('/command', methods=['POST'])
+@app.route('/api/command', methods=['POST'])
 def process_command():
     data = request.json
     command = data.get('command', '').lower()
@@ -89,8 +69,7 @@ def process_command():
     
     return jsonify({'error': 'Command not recognized'})
 
-# Updated routes to match the URLs you're trying to access
-@app.route('/devices', methods=['GET'])
+@app.route('/api/devices', methods=['GET'])
 def get_devices():
     devices = Device.query.all()
     result = []
@@ -104,15 +83,6 @@ def get_devices():
         result.append(device_data)
     
     return jsonify(result)
-
-# Add both routes to support both URL patterns
-@app.route('/api/devices', methods=['GET'])
-def get_api_devices():
-    return get_devices()
-
-@app.route('/api/command', methods=['POST'])
-def process_api_command():
-    return process_command()
 
 if __name__ == '__main__':
     app.run(debug=True)
