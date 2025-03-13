@@ -2,10 +2,10 @@ from flask import Flask, request, jsonify
 from flask_cors import CORS
 from flask_sqlalchemy import SQLAlchemy
 import os
+import re
 
 app = Flask(__name__)
 CORS(app)
-
 # Configure database with the provided Neon PostgreSQL connection string
 db_url = os.environ.get('DATABASE_URL', 'postgresql://neondb_owner:npg_SWUg7ubs6hJK@ep-proud-sunset-aaup75g7-pooler.westus3.azure.neon.tech/neondb?sslmode=require')
 app.config['SQLALCHEMY_DATABASE_URI'] = db_url
@@ -59,10 +59,63 @@ def process_command():
             thermostat = Device(name='thermostat', state='on', value=70)
             db.session.add(thermostat)
         
-        if 'increase' in command or 'up' in command or 'higher' in command:
-            thermostat.value = min(thermostat.value + 1, 90)  # Max temp 90
-        elif 'decrease' in command or 'down' in command or 'lower' in command:
-            thermostat.value = max(thermostat.value - 1, 50)  # Min temp 50
+        # Handle reset temperature command - resets to 60 degrees
+        if 'reset' in command:
+            thermostat.value = 60
+            db.session.commit()
+            return jsonify({
+                'device': 'thermostat', 
+                'value': thermostat.value, 
+                'message': 'Temperature reset to 60°F'
+            })
+        
+        # Handle "make temperature to [value]" command
+        elif 'make temperature to' in command:
+            # Extract the temperature value using regex
+            temp_match = re.search(r'make temperature to\s+(\d+)', command)
+            if temp_match:
+                temp_value = int(temp_match.group(1))
+                # Apply temperature limits
+                temp_value = max(50, min(temp_value, 90))  # Between 50 and 90
+                thermostat.value = temp_value
+                db.session.commit()
+                return jsonify({'device': 'thermostat', 'value': thermostat.value, 'message': f'Temperature set to {temp_value}°F'})
+            else:
+                return jsonify({'error': 'Temperature value not provided or invalid'})
+        
+        # Handle temperature adjustment commands with specific amounts
+        elif any(word in command for word in ['increase', 'up', 'higher', 'raise']):
+            # Check for specific amount patterns like "increase by 5 degrees" or "up 3 degrees"
+            amount_match = re.search(r'(?:by|to)?\s*(\d+)\s*(?:degrees?|°)?', command)
+            
+            if amount_match:
+                # Extract the specific amount to increase
+                increase_amount = int(amount_match.group(1))
+                # Apply the increase with upper limit of 90
+                thermostat.value = min(thermostat.value + increase_amount, 90)
+                message = f"Temperature increased by {increase_amount} degrees to {thermostat.value}°F"
+            else:
+                # Default to increasing by 1 degree if no specific amount
+                thermostat.value = min(thermostat.value + 1, 90)
+                message = f"Temperature increased by 1 degree to {thermostat.value}°F"
+        
+        elif any(word in command for word in ['decrease', 'down', 'lower', 'reduce']):
+            # Check for specific amount patterns like "decrease by 5 degrees" or "down 3 degrees"
+            amount_match = re.search(r'(?:by|to)?\s*(\d+)\s*(?:degrees?|°)?', command)
+            
+            if amount_match:
+                # Extract the specific amount to decrease
+                decrease_amount = int(amount_match.group(1))
+                # Apply the decrease with lower limit of 50
+                thermostat.value = max(thermostat.value - decrease_amount, 50)
+                message = f"Temperature decreased by {decrease_amount} degrees to {thermostat.value}°F"
+            else:
+                # Default to decreasing by 1 degree if no specific amount
+                thermostat.value = max(thermostat.value - 1, 50)
+                message = f"Temperature decreased by 1 degree to {thermostat.value}°F"
+        
+            db.session.commit()
+            return jsonify({'device': 'thermostat', 'value': thermostat.value, 'message': message})
         
         db.session.commit()
         return jsonify({'device': 'thermostat', 'value': thermostat.value})
